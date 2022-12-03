@@ -1,6 +1,6 @@
 variable "subnet_ids" {
-    type = string
-    default = ""
+    type = list
+    default = []
   
 }
 
@@ -12,6 +12,12 @@ variable "name" {
 }
 
 variable "vpc_cidr" {
+    type = string
+    default = ""
+  
+}
+
+variable "vpc_id" {
     type = string
     default = ""
   

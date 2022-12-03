@@ -1,24 +1,29 @@
-resource "random_password" "db_master_pass" {
-  length           = 40
-  special          = true
-  min_special      = 5
-  override_special = "!#$%^&*()-_=+[]{}<>:?"
-}
-
-resource "aws_secretsmanager_secret" "db-pass" {
-  name = "db-pass"
-}
-
-resource "aws_secretsmanager_secret_version" "db-pass-val" {
-  secret_id = aws_secretsmanager_secret.db-pass.id
-  secret_string = jsonencode(
-    {
-      username = aws_rds_cluster.cluster.master_username
-      password = aws_rds_cluster.cluster.master_password
-      engine   = "mysql"
-      host     = aws_rds_cluster.cluster.endpoint
-    }
+locals {
+  db_creds = merge(
+    tomap({
+      "password" = random_password.password.result
+    })
   )
+}
+
+resource "random_password" "password" {
+  length  = 16
+  special = true
+  override_special = "_!%^"
+  lifecycle {
+    ignore_changes = all
+  }
+}
+
+resource "aws_secretsmanager_secret" "snyprdb" {
+  name = format("prod/mysql/snyprappdb")
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "snyprdb" {
+  secret_id     = aws_secretsmanager_secret.snyprdb.id
+  secret_string = jsonencode(local.db_creds)
+  depends_on    = [aws_secretsmanager_secret.snyprdb]
 }
 
 
@@ -31,13 +36,13 @@ resource "aws_security_group" "rds-security-group" {
     from_port   = 3306
     to_port     = 3306
     protocol    = "tcp"
-    cidr_blocks = var.vpc_cidr
+    cidr_blocks = [var.vpc_cidr]
   }
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
-    cidr_blocks = var.vpc_cidr
+    cidr_blocks = [var.vpc_cidr]
   }
 
 }
@@ -49,12 +54,13 @@ resource "aws_db_instance" "default" {
   engine               = "mysql"
   engine_version       = "5.7"
   instance_class       = "db.t3.micro"
-  username             = "foo"
-  password             = random_password.db_master_pass.result
+  username             = "admin"
+  password             = jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]
   skip_final_snapshot  = true
   vpc_security_group_ids = [aws_security_group.rds-security-group.id]
   db_subnet_group_name = aws_db_subnet_group.default.name
-  parameter_group_name = aws_db_parameter_group.default[0].id
+  parameter_group_name = aws_db_parameter_group.default.id
+  publicly_accessible = true
 }
 
 
@@ -76,4 +82,34 @@ resource "aws_db_parameter_group" "default" {
 
 resource "aws_db_subnet_group" "default" {
   subnet_ids = var.subnet_ids
+}
+
+
+# resource "null_resource" "create-db" {
+#   provisioner "local-exec" {
+#     command     = "for item in $ITEMS; do echo $item >> test-file; done"
+#     environment = { 
+#       ITEMS = join(" ", var.items) 
+#       }
+#   }
+# }
+
+# resource "null_resource" "create-table" {
+#   provisioner "local-exec" {
+#     command     = "for item in $ITEMS; do echo $item >> test-file; done"
+#     environment = { 
+#       ITEMS = join(" ", var.items) 
+#       }
+#   }
+# }
+
+resource "null_resource" "add-data" {
+  provisioner "local-exec" {
+    command     = "python3 ../files/add-data.py --user={user}  --password={password} --host={host}"
+    environment = { 
+      user = "admin"
+      password = jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]
+      host = aws_db_instance.default.endpoint
+       }
+  }
 }
