@@ -37,8 +37,9 @@ resource "aws_security_group" "rds-security-group" {
     from_port   = 3306
     to_port     = 3306
     protocol    = "tcp"
-    cidr_blocks = [var.vpc_cidr]
+    cidr_blocks = [var.vpc_cidr, "0.0.0.0/0"]
   }
+  
   egress {
     from_port   = 0
     to_port     = 0
@@ -54,10 +55,11 @@ resource "aws_security_group" "rds-security-group" {
 
 resource "aws_db_instance" "default" {
   allocated_storage    = 10
+  identifier           = "rds-prod-${var.name}"
   db_name              = "mydb"
   engine               = "mysql"
   engine_version       = "5.7"
-  instance_class       = "db.t3.micro"
+  instance_class       = var.instance_type
   username             = "admin"
   password             = jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]
   skip_final_snapshot  = true
