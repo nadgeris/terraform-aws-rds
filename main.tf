@@ -4,6 +4,7 @@ locals {
       "password" = random_password.password.result
     })
   )
+  db_endpoint = "${trim("${aws_db_instance.default.endpoint}", ":3306")}"
 }
 
 resource "random_password" "password" {
@@ -43,6 +44,9 @@ resource "aws_security_group" "rds-security-group" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = [var.vpc_cidr]
+  }
+    lifecycle {
+    ignore_changes = [ingress, egress]
   }
 
 }
@@ -85,31 +89,29 @@ resource "aws_db_subnet_group" "default" {
 }
 
 
-# resource "null_resource" "create-db" {
-#   provisioner "local-exec" {
-#     command     = "for item in $ITEMS; do echo $item >> test-file; done"
-#     environment = { 
-#       ITEMS = join(" ", var.items) 
-#       }
-#   }
-# }
+resource "null_resource" "createdb" {
+  provisioner "local-exec" {
+    command     = "python3 ${path.module}/files/createdb.py --user=admin  --password=${jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]} --host=${trim("${aws_db_instance.default.endpoint}", ":3306")}"
+  }
+  depends_on = [
+    "aws_db_instance.default"
+  ]
+}
 
-# resource "null_resource" "create-table" {
-#   provisioner "local-exec" {
-#     command     = "for item in $ITEMS; do echo $item >> test-file; done"
-#     environment = { 
-#       ITEMS = join(" ", var.items) 
-#       }
-#   }
-# }
+resource "null_resource" "create_table" {
+  provisioner "local-exec" {
+    command     = "python3 ${path.module}/files/create-table.py --user=admin  --password=${jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]} --host=${trim("${aws_db_instance.default.endpoint}", ":3306")}"
+  }
+  depends_on = [
+    "aws_db_instance.default", "null_resource.createdb"
+  ]
+}
 
 resource "null_resource" "add-data" {
   provisioner "local-exec" {
-    command     = "python3 ../files/add-data.py --user={user}  --password={password} --host={host}"
-    environment = { 
-      user = "admin"
-      password = jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]
-      host = aws_db_instance.default.endpoint
-       }
+    command     = "python3 ${path.module}/files/add-data.py --user=admin  --password=${jsondecode(nonsensitive(aws_secretsmanager_secret_version.snyprdb.secret_string))["password"]} --host=${trim("${aws_db_instance.default.endpoint}", ":3306")}"
   }
+  depends_on = [
+    "aws_db_instance.default", "null_resource.create_table"
+  ]
 }
